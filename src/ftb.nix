@@ -13,37 +13,50 @@
 # You should have received a copy of the GNU General Public License
 # along with nix-minecraft.  If not, see <https://www.gnu.org/licenses/>.
 
-{ config, pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 let
   inherit (lib) mkOption mkIf types;
   cfg = config.modpack.ftb;
 
-  json = lib.importJSON (pkgs.fetchurl {
-    url = "https://api.modpacks.ch/public/modpack/${toString cfg.id}/${toString cfg.version}";
-    inherit (cfg) hash;
-  });
+  json = lib.importJSON (
+    pkgs.fetchurl {
+      url = "https://api.modpacks.ch/public/modpack/${toString cfg.id}/${toString cfg.version}";
+      inherit (cfg) hash;
+    }
+  );
 
-  files = map
-    (f: {
-      path = "${f.path}/${f.name}";
-      source = pkgs.fetchurl {
+  files = map (f: {
+    path = "${f.path}/${f.name}";
+    source =
+      pkgs.fetchurl {
         inherit (f) sha1;
-        url = builtins.replaceStrings [ " " ] [ "%20" ] f.url;
+        url = builtins.replaceStrings [ " " ] [ "%20" ] (
+          if (builtins.hasAttr "curseforge" f) then
+            let
+              fileId = toString f.curseforge.file;
+            in
+            "https://mediafilez.forgecdn.net/files/${builtins.substring 0 4 fileId}/${builtins.substring 4 7 fileId}/${f.name}"
+          else
+            f.url
+        );
         name = lib.strings.sanitizeDerivationName f.name;
         curlOpts = "--globoff"; # do not misinterpret [] brackets
       };
-    })
-    (builtins.filter (f: !f.serveronly) json.files);
+  }) (builtins.filter (f: !f.serveronly) json.files);
 
-  forgeVersion = (lib.findFirst
-    (t: t.name == "forge")
-    (throw "forge not found in modpack targets")
-    json.targets).version;
+  forgeVersion =
+    (lib.findFirst (t: t.name == "forge") (throw "forge not found in modpack targets") json.targets)
+    .version;
 
-  mcVersion = (lib.findFirst
-    (t: t.name == "minecraft")
-    (throw "minecraft not found in modpack targets")
-    json.targets).version;
+  mcVersion =
+    (lib.findFirst (
+      t: t.name == "minecraft"
+    ) (throw "minecraft not found in modpack targets") json.targets).version;
 in
 {
   options.modpack.ftb = {
